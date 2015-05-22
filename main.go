@@ -1,14 +1,10 @@
 package main
 
 import (
-	"bufio"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"math/rand"
-	"os"
-	"strconv"
 
 	"github.com/jroimartin/gocui"
 )
@@ -142,119 +138,6 @@ func randOrientation() bool {
 	}
 }
 
-func shoot(x int, y int) error {
-	if x > 15 || y > 15 {
-		return errors.New(fmt.Sprintf("You cannot shoot at location (%d, %d): it is off the board\n", x, y))
-	}
-	square := grid[x][y]
-	if square.BeenHit {
-		return errors.New(fmt.Sprintf("You have already shot at square (%d, %d)\n", x, y))
-	}
-	if square.HasShip {
-		fmt.Printf("You hit a ship at location (%d, %d)!\n", x, y)
-		boatHits[square.ShipType] += 1
-		if boatHits[square.ShipType] == shipLengths[square.ShipType] {
-			fmt.Printf("You've sunk my %s!\n", square.ShipType)
-			playerScore += shipPoints[square.ShipType]
-		}
-	} else {
-		fmt.Printf("You missed at (%d, %d)\n", x, y)
-		playerScore -= 1
-	}
-	grid[x][y].BeenHit = true
-
-	return nil
-}
-
-func getCoordinate() (x int, y int) {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Printf("Input a coordinate:")
-	fmt.Printf("\tx: ")
-	xStr, err := reader.ReadString([]byte("\n")[0])
-	if err != nil {
-		fmt.Printf("Error reading from stdin: %s", err.Error())
-		return getCoordinate()
-	}
-	if len(xStr) > 1 {
-		xStr = xStr[:len(xStr)-1]
-	}
-	fmt.Printf("\ty: ")
-	yStr, err := reader.ReadString([]byte("\n")[0])
-	if err != nil {
-		fmt.Printf("Error reading from stdin: %s", err.Error())
-		return getCoordinate()
-	}
-	if len(yStr) > 1 {
-		yStr = yStr[:len(yStr)-1]
-	}
-	x, err = strconv.Atoi(xStr)
-	if err != nil {
-		fmt.Printf("Error converting `%s` to int: %s\n", xStr, err.Error())
-		return getCoordinate()
-	}
-	y, err = strconv.Atoi(yStr)
-	if err != nil {
-		fmt.Printf("Error converting `%s` to int: %s\n", xStr, err.Error())
-		return getCoordinate()
-	}
-	return x, y
-}
-
-func takeTurn() {
-	coordinates := make([]Coordinate, 5)
-	for i := 0; i < 5; i++ {
-		//x, y := getCoordinate()
-		coordinates[i] = Coordinate{
-			X: i,
-			Y: i,
-		}
-	}
-
-	var fails int
-	for _, point := range coordinates {
-		err := shoot(point.X, point.Y)
-		if err != nil {
-			fmt.Printf("Error shooting at (%d, %d): %s", point.X, point.Y, err.Error())
-			fails += 1
-		}
-		if haveYouWon() {
-			win()
-			return
-		}
-	}
-
-	for fails > 0 {
-		coordinates := make([]Coordinate, fails)
-		for i := 0; i < fails; i++ {
-			x, y := getCoordinate()
-			coordinates[i] = Coordinate{
-				X: x,
-				Y: y,
-			}
-		}
-
-		fails = 0
-		for _, point := range coordinates {
-			err := shoot(point.X, point.Y)
-			if err != nil {
-				fmt.Printf("Error shooting at (%d, %d): %s\n", point.X, point.Y, err.Error())
-				fails += 1
-			}
-		}
-	}
-}
-
-func win() {
-	fmt.Printf("You won!\n")
-	fmt.Printf("Your final score was: %d\n", playerScore)
-	return
-}
-
-func lose() {
-	fmt.Printf("Unfortunately, you lost.\n")
-	fmt.Printf("Your final score was: %d\n", playerScore)
-}
-
 func haveYouWon() bool {
 	for _, boat := range shipTypes {
 		if boatHits[boat] < shipLengths[boat] {
@@ -264,80 +147,6 @@ func haveYouWon() bool {
 	return true
 }
 
-func playGame(g *gocui.Gui) {
-	for i := 0; i < 1; i++ {
-		takeTurn()
-		if haveYouWon() {
-			win()
-			return
-		}
-		//fmt.Printf("After turn %d, your score is %d\n", i+1, playerScore)
-		s := prepBoardAndCheat()
-		//fmt.Print(s)
-		gBoard = s
-		g.Flush()
-		renderBoard(g)
-	}
-
-	if haveYouWon() {
-		win()
-		return
-	} else {
-		lose()
-		return
-	}
-}
-
-func prepBoard() (s string) {
-	s = ""
-	for _, row := range grid {
-		line := ""
-		for _, cell := range row {
-			var c string
-			if cell.BeenHit {
-				c = "X"
-			} else {
-				c = "."
-			}
-			line += c
-		}
-		line += fmt.Sprintln()
-		s += line
-	}
-	return s
-}
-
-func prepBoardAndCheat() (s string) {
-	s = ""
-	for _, row := range grid {
-		line := ""
-		for _, cell := range row {
-			var c string
-			switch {
-			case cell.BeenHit:
-				c = "X"
-			case cell.HasShip:
-				c = "B"
-			default:
-				c = "."
-			}
-			line += c
-		}
-		line += fmt.Sprintln()
-		s += line
-	}
-	return s
-}
-func layout(g *gocui.Gui) error {
-	maxX, maxY := g.Size()
-	if v, err := g.SetView("center", 0, 0, maxX, maxY); err != nil {
-		if err != gocui.ErrorUnkView {
-			return err
-		}
-		fmt.Fprintln(v, gBoard)
-	}
-	return nil
-}
 func quit(g *gocui.Gui, v *gocui.View) error {
 	return gocui.Quit
 }
