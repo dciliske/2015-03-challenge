@@ -3,12 +3,14 @@ package main
 import (
 	"bufio"
 	"errors"
+	"flag"
 	"fmt"
-	"github.com/jroimartin/gocui"
 	"log"
 	"math/rand"
 	"os"
 	"strconv"
+
+	"github.com/jroimartin/gocui"
 )
 
 const (
@@ -46,6 +48,8 @@ var (
 	g           *gocui.Gui
 	gBoard      string
 	shotsLeft   int
+
+	cheatFlag = flag.Bool("cheat", false, "Use this flag to cheat.")
 )
 
 func init() {
@@ -272,7 +276,7 @@ func playGame(g *gocui.Gui) {
 		//fmt.Print(s)
 		gBoard = s
 		g.Flush()
-		renderBoard(g, true)
+		renderBoard(g)
 	}
 
 	if haveYouWon() {
@@ -338,7 +342,7 @@ func quit(g *gocui.Gui, v *gocui.View) error {
 	return gocui.Quit
 }
 
-func renderBoard(g *gocui.Gui, cheat bool) {
+func renderBoard(g *gocui.Gui) {
 	g.SetCurrentView(BOARD)
 	g.CurrentView().Clear()
 	for _, row := range grid {
@@ -347,7 +351,7 @@ func renderBoard(g *gocui.Gui, cheat bool) {
 			switch {
 			case cell.BeenHit:
 				c = "X"
-			case cheat && cell.HasShip:
+			case *cheatFlag && cell.HasShip:
 				c = "B"
 			default:
 				c = "."
@@ -373,7 +377,7 @@ func renderShotsLeft(g *gocui.Gui) {
 }
 
 func thisMyLayout(gui *gocui.Gui) error {
-	renderBoard(gui, true)
+	renderBoard(gui)
 	renderScore(gui)
 	renderShotsLeft(gui)
 	return nil
@@ -471,6 +475,8 @@ func Restart(gui *gocui.Gui, view *gocui.View) error {
 }
 
 func main() {
+	flag.Parse()
+
 	g = gocui.NewGui()
 	if err := g.Init(); err != nil {
 		log.Panicln(err.Error())
@@ -530,5 +536,4 @@ func main() {
 	if err != nil && err != gocui.Quit {
 		log.Panicln(err)
 	}
-	//playGame(g)
 }
