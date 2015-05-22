@@ -14,6 +14,11 @@ import (
 const (
 	VERTICAL   = true
 	HORIZONTAL = false
+
+	BOARD  = "board"
+	STATUS = "status"
+	SCORE  = "score"
+	SHOTS  = "shots"
 )
 
 var (
@@ -40,9 +45,17 @@ var (
 	playerScore int
 	g           *gocui.Gui
 	gBoard      string
+	shotsLeft   int
 )
 
 func init() {
+	for i, _ := range grid {
+		grid[i] = make([]GridSquare, 16)
+	}
+	boatHits = make(map[string]int)
+}
+
+func resetGrid() {
 	for i, _ := range grid {
 		grid[i] = make([]GridSquare, 16)
 	}
@@ -259,7 +272,7 @@ func playGame(g *gocui.Gui) {
 		//fmt.Print(s)
 		gBoard = s
 		g.Flush()
-		renderBoard(g, s)
+		renderBoard(g, true)
 	}
 
 	if haveYouWon() {
@@ -324,42 +337,192 @@ func layout(g *gocui.Gui) error {
 func quit(g *gocui.Gui, v *gocui.View) error {
 	return gocui.Quit
 }
-func renderBoard(g *gocui.Gui, board string) {
-	x := 0
-	y := 0
-	for _, c := range board {
-		if c == '\n' {
-			y += 1
-			x = 0
-			continue
+
+func renderBoard(g *gocui.Gui, cheat bool) {
+	g.SetCurrentView(BOARD)
+	g.CurrentView().Clear()
+	for _, row := range grid {
+		for _, cell := range row {
+			var c string
+			switch {
+			case cell.BeenHit:
+				c = "X"
+			case cheat && cell.HasShip:
+				c = "B"
+			default:
+				c = "."
+			}
+			fmt.Fprintf(g.CurrentView(), "%v ", c)
 		}
-		g.SetRune(x, y, c)
-		x++
+		fmt.Fprintf(g.CurrentView(), "\n")
 	}
 }
 
-func main() {
-	placeShips()
-	for i, row := range grid {
-		for j, cell := range row {
-			var c string
-			if cell.ShipType != "" {
-				c = fmt.Sprintf("X")
-			} else {
-				c = fmt.Sprintf("%d,%d", i, j)
-			}
-			fmt.Printf("%v\t", c)
-		}
-		fmt.Printf("\n")
-	}
+func renderScore(g *gocui.Gui) {
+	g.SetCurrentView(SCORE)
+	defer g.SetCurrentView(BOARD)
+	g.CurrentView().Clear()
+	fmt.Fprintf(g.CurrentView(), "score\n%d", playerScore)
+}
 
-	var err error
+func renderShotsLeft(g *gocui.Gui) {
+	g.SetCurrentView(SHOTS)
+	defer g.SetCurrentView(BOARD)
+	g.CurrentView().Clear()
+	fmt.Fprintf(g.CurrentView(), "left:\n%d", shotsLeft)
+}
+
+func thisMyLayout(gui *gocui.Gui) error {
+	renderBoard(gui, true)
+	renderScore(gui)
+	renderShotsLeft(gui)
+	return nil
+}
+
+func MoveRight(gui *gocui.Gui, view *gocui.View) error {
+	x, _ := view.Cursor()
+	if x < 32 {
+		view.MoveCursor(2, 0, false)
+	}
+	return nil
+}
+
+func MoveLeft(gui *gocui.Gui, view *gocui.View) error {
+	x, _ := view.Cursor()
+	if x > 0 {
+		view.MoveCursor(-2, 0, false)
+	}
+	return nil
+}
+
+func MoveUp(gui *gocui.Gui, view *gocui.View) error {
+	_, y := view.Cursor()
+	if y > 0 {
+		view.MoveCursor(0, -1, false)
+	}
+	return nil
+}
+
+func MoveDown(gui *gocui.Gui, view *gocui.View) error {
+	_, y := view.Cursor()
+	if y < 15 {
+		view.MoveCursor(0, 1, false)
+	}
+	return nil
+}
+
+func WriteStatus(gui *gocui.Gui, statusMsg string, a ...interface{}) error {
+	v, err := gui.View(STATUS)
+	if err != nil {
+		return err
+	}
+	v.Clear()
+	_, err = fmt.Fprintf(v, statusMsg, a...)
+	return err
+}
+
+func ShootAt(gui *gocui.Gui, view *gocui.View) error {
+	defer gui.Flush()
+	if shotsLeft <= 0 {
+		return WriteStatus(gui, "You're out of shots. You have lost. You are dead. Press tab to play again.")
+	}
+	if haveYouWon() {
+		return WriteStatus(gui, "You won! Press tab to play again.")
+	}
+	defer func() {
+		if haveYouWon() {
+			WriteStatus(gui, "You won! Press tab to play again.")
+		} else if shotsLeft <= 0 {
+			WriteStatus(gui, "You're out of shots. You have lost. You are dead. Press tab to play again.")
+		}
+	}()
+	x, y := view.Cursor()
+	x /= 2
+
+	square := grid[y][x]
+	if square.BeenHit {
+		return WriteStatus(gui, "You already shot there. Try again")
+	}
+	shotsLeft -= 1
+	grid[y][x].BeenHit = true
+
+	if square.HasShip {
+		boatHits[square.ShipType] += 1
+		if boatHits[square.ShipType] == shipLengths[square.ShipType] {
+			playerScore += shipPoints[square.ShipType]
+			return WriteStatus(gui, "You sunk my %s at (%d, %d)", square.ShipType, x, y)
+		} else {
+			return WriteStatus(gui, "You hit a ship at square (%d, %d)", x, y)
+		}
+	} else {
+		playerScore--
+		return WriteStatus(gui, "You missed at (%d, %d)", x, y)
+	}
+	return nil
+}
+
+func Restart(gui *gocui.Gui, view *gocui.View) error {
+	defer gui.Flush()
+	resetGrid()
+	shotsLeft = 6 * 5
+	placeShips()
+	playerScore = 0
+	return nil
+}
+
+func main() {
 	g = gocui.NewGui()
 	if err := g.Init(); err != nil {
-		log.Panicln(err)
+		log.Panicln(err.Error())
 	}
 	defer g.Close()
-	g.SetLayout(layout)
+	g.SetLayout(thisMyLayout)
+	g.ShowCursor = true
+
+	boardView, err := g.SetView(BOARD, 0, 0, 34, 17)
+	if err != nil && err != gocui.ErrorUnkView {
+		log.Panicln(err.Error())
+	}
+	boardView.Overwrite = true
+	boardView.Wrap = false
+	boardView.Autoscroll = false
+	err = g.SetCurrentView(BOARD)
+	if err != nil && err != gocui.ErrorUnkView {
+		log.Panicln(err.Error())
+	}
+
+	Restart(g, boardView)
+
+	statusView, err := g.SetView(STATUS, 0, 18, 34, 25)
+	statusView.Autoscroll = false
+	statusView.Wrap = true
+	statusView.Overwrite = true
+	err = g.SetCurrentView(BOARD)
+	if err != nil {
+		log.Panicln(err.Error())
+	}
+
+	scoreView, err := g.SetView(SCORE, 36, 0, 45, 3)
+	scoreView.Autoscroll = false
+	scoreView.Wrap = false
+	scoreView.Overwrite = true
+
+	shotsLeftView, err := g.SetView(SHOTS, 36, 5, 45, 8)
+	shotsLeftView.Autoscroll = false
+	shotsLeftView.Wrap = false
+	shotsLeftView.Overwrite = true
+
+	g.SetKeybinding(BOARD, gocui.KeyArrowUp, gocui.ModNone, MoveUp)
+	g.SetKeybinding(BOARD, gocui.KeyArrowDown, gocui.ModNone, MoveDown)
+	g.SetKeybinding(BOARD, gocui.KeyArrowLeft, gocui.ModNone, MoveLeft)
+	g.SetKeybinding(BOARD, gocui.KeyArrowRight, gocui.ModNone, MoveRight)
+	g.SetKeybinding(BOARD, gocui.KeyEnter, gocui.ModNone, ShootAt)
+	g.SetKeybinding(BOARD, gocui.KeySpace, gocui.ModNone, ShootAt)
+	g.SetKeybinding(BOARD, gocui.KeyEsc, gocui.ModNone, Restart)
+	g.SetKeybinding(BOARD, gocui.KeyBackspace, gocui.ModNone, Restart)
+	g.SetKeybinding(BOARD, gocui.KeyTab, gocui.ModNone, Restart)
+
+	//g.SetLayout(layout)
 	if err := g.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, quit); err != nil {
 		log.Panicln(err)
 	}
@@ -367,5 +530,5 @@ func main() {
 	if err != nil && err != gocui.Quit {
 		log.Panicln(err)
 	}
-	playGame(g)
+	//playGame(g)
 }
