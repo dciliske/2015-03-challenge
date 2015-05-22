@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"github.com/jroimartin/gocui"
+	"log"
 	"math/rand"
 	"os"
 	"strconv"
@@ -36,6 +38,8 @@ var (
 	boatHits map[string]int
 
 	playerScore int
+	g           *gocui.Gui
+	gBoard      string
 )
 
 func init() {
@@ -182,10 +186,10 @@ func getCoordinate() (x int, y int) {
 func takeTurn() {
 	coordinates := make([]Coordinate, 5)
 	for i := 0; i < 5; i++ {
-		x, y := getCoordinate()
+		//x, y := getCoordinate()
 		coordinates[i] = Coordinate{
-			X: x,
-			Y: y,
+			X: i,
+			Y: i,
 		}
 	}
 
@@ -243,15 +247,19 @@ func haveYouWon() bool {
 	return true
 }
 
-func playGame() {
-	for i := 0; i < 6; i++ {
+func playGame(g *gocui.Gui) {
+	for i := 0; i < 1; i++ {
 		takeTurn()
 		if haveYouWon() {
 			win()
 			return
 		}
-		fmt.Printf("After turn %d, your score is %d\n", i+1, playerScore)
-		printBoardAndCheat()
+		//fmt.Printf("After turn %d, your score is %d\n", i+1, playerScore)
+		s := prepBoardAndCheat()
+		//fmt.Print(s)
+		gBoard = s
+		g.Flush()
+		renderBoard(g, s)
 	}
 
 	if haveYouWon() {
@@ -263,24 +271,30 @@ func playGame() {
 	}
 }
 
-func printBoard() {
-	for i, row := range grid {
-		for j, cell := range row {
+func prepBoard() (s string) {
+	s = ""
+	for _, row := range grid {
+		line := ""
+		for _, cell := range row {
 			var c string
 			if cell.BeenHit {
 				c = "X"
 			} else {
-				c = fmt.Sprintf("%d,%d", i, j)
+				c = "."
 			}
-			fmt.Printf("%v\t", c)
+			line += c
 		}
-		fmt.Println()
+		line += fmt.Sprintln()
+		s += line
 	}
+	return s
 }
 
-func printBoardAndCheat() {
-	for i, row := range grid {
-		for j, cell := range row {
+func prepBoardAndCheat() (s string) {
+	s = ""
+	for _, row := range grid {
+		line := ""
+		for _, cell := range row {
 			var c string
 			switch {
 			case cell.BeenHit:
@@ -288,11 +302,39 @@ func printBoardAndCheat() {
 			case cell.HasShip:
 				c = "B"
 			default:
-				c = fmt.Sprintf("%d,%d", i, j)
+				c = "."
 			}
-			fmt.Printf("%v\t", c)
+			line += c
 		}
-		fmt.Println()
+		line += fmt.Sprintln()
+		s += line
+	}
+	return s
+}
+func layout(g *gocui.Gui) error {
+	maxX, maxY := g.Size()
+	if v, err := g.SetView("center", 0, 0, maxX, maxY); err != nil {
+		if err != gocui.ErrorUnkView {
+			return err
+		}
+		fmt.Fprintln(v, gBoard)
+	}
+	return nil
+}
+func quit(g *gocui.Gui, v *gocui.View) error {
+	return gocui.Quit
+}
+func renderBoard(g *gocui.Gui, board string) {
+	x := 0
+	y := 0
+	for _, c := range board {
+		if c == '\n' {
+			y += 1
+			x = 0
+			continue
+		}
+		g.SetRune(x, y, c)
+		x++
 	}
 }
 
@@ -311,5 +353,19 @@ func main() {
 		fmt.Printf("\n")
 	}
 
-	playGame()
+	var err error
+	g = gocui.NewGui()
+	if err := g.Init(); err != nil {
+		log.Panicln(err)
+	}
+	defer g.Close()
+	g.SetLayout(layout)
+	if err := g.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, quit); err != nil {
+		log.Panicln(err)
+	}
+	err = g.MainLoop()
+	if err != nil && err != gocui.Quit {
+		log.Panicln(err)
+	}
+	playGame(g)
 }
